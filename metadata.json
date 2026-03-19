@@ -1,0 +1,5 @@
+{
+  "name": "SkyTrack - Flight Lookup",
+  "description": "A clean and efficient flight tracking application using the Aviation Stack API. Get real-time departure and arrival information including terminals, gates, and timezones.",
+  "requestFramePermissions": []
+}
