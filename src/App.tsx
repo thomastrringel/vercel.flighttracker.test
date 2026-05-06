@@ -10,6 +10,21 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [flightData, setFlightData] = useState<FlightData | null>(null);
   const [showKeyForm, setShowKeyForm] = useState(!apiKey);
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    const saved = localStorage.getItem('recent_flights');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('recent_flights', JSON.stringify(recentSearches));
+  }, [recentSearches]);
+
+  const saveRecentSearch = (num: string) => {
+    setRecentSearches(prev => {
+      const filtered = prev.filter(s => s !== num);
+      return [num, ...filtered].slice(0, 5);
+    });
+  };
 
   const saveApiKey = (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,13 +37,17 @@ export default function App() {
     }
   };
 
-  const fetchFlightInfo = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const fetchFlightInfo = async (e: React.FormEvent | string) => {
+    if (typeof e !== 'string') e.preventDefault();
+    
+    const searchNumber = typeof e === 'string' ? e : flightNumber.trim();
     if (!apiKey) {
       setShowKeyForm(true);
       return;
     }
-    if (!flightNumber.trim()) return;
+    if (!searchNumber) return;
+
+    if (typeof e === 'string') setFlightNumber(e);
 
     setLoading(true);
     setError(null);
@@ -36,22 +55,18 @@ export default function App() {
 
     try {
       // Aviation Stack API
-      const response = await fetch(`https://api.aviationstack.com/v1/flights?access_key=${apiKey}&flight_iata=${flightNumber.trim()}`);
+      const response = await fetch(`https://api.aviationstack.com/v1/flights?access_key=${apiKey}&flight_iata=${searchNumber}`);
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch flight data. Please check your API key.');
-      }
-
       const result: AviationStackResponse = await response.json();
 
       if (result.data && result.data.length > 0) {
-        // Get the most recent flight (usually the first one)
         setFlightData(result.data[0]);
+        saveRecentSearch(searchNumber);
       } else {
-        setError('No flight found with that number. Please check and try again.');
+        setError('No flight found. Please check the flight number.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
+      setError('Connection failed. Please check your API key.');
     } finally {
       setLoading(false);
     }
@@ -77,6 +92,25 @@ export default function App() {
       </span>
     );
   };
+
+  const calculateProgress = (dep: string, arr: string) => {
+    const start = new Date(dep).getTime();
+    const end = new Date(arr).getTime();
+    const now = new Date().getTime();
+    if (now < start) return 0;
+    if (now > end) return 100;
+    return Math.round(((now - start) / (end - start)) * 100);
+  };
+
+  const SkeletonLoader = () => (
+    <div className="animate-pulse space-y-8">
+      <div className="bg-white rounded-3xl h-64 w-full"></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="bg-white rounded-3xl h-80"></div>
+        <div className="bg-white rounded-3xl h-80"></div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#F5F5F5] text-[#1A1A1A] font-sans selection:bg-emerald-100">
@@ -111,13 +145,13 @@ export default function App() {
             <h2 className="text-4xl font-light mb-4 tracking-tight">Track your flight in real-time</h2>
             <p className="text-gray-500 mb-8">Enter a flight number (e.g., AA123 or DL456) to get detailed departure and arrival information.</p>
             
-            <form onSubmit={fetchFlightInfo} className="relative group">
+            <form onSubmit={fetchFlightInfo} className="relative group mb-6">
               <div className="absolute inset-y-0 left-5 flex items-center pointer-events-none">
                 <Search className="w-5 h-5 text-gray-400 group-focus-within:text-emerald-600 transition-colors" />
               </div>
               <input
                 type="text"
-                placeholder="Flight Number (IATA)"
+                placeholder="Ex: LH400, AF1234..."
                 value={flightNumber}
                 onChange={(e) => setFlightNumber(e.target.value.toUpperCase())}
                 className="w-full bg-white border border-black/10 rounded-2xl py-5 pl-14 pr-32 text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm"
@@ -127,14 +161,43 @@ export default function App() {
                 disabled={loading}
                 className="absolute right-3 inset-y-3 px-6 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Track'}
               </button>
             </form>
+
+            <AnimatePresence>
+              {recentSearches.length > 0 && !loading && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex flex-wrap justify-center items-center gap-2"
+                >
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mr-2">Recent Searches</span>
+                  {recentSearches.map(num => (
+                    <button
+                      key={num}
+                      onClick={() => fetchFlightInfo(num)}
+                      className="px-3 py-1 bg-white border border-black/5 rounded-full text-xs font-semibold hover:border-emerald-500 hover:text-emerald-600 transition-all shadow-sm"
+                    >
+                      {num}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setRecentSearches([])}
+                    className="ml-2 text-[10px] font-bold text-gray-400 hover:text-red-500 uppercase tracking-widest transition-colors"
+                  >
+                    Clear
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         </section>
 
         {/* Results Section */}
         <AnimatePresence mode="wait">
+          {loading && <SkeletonLoader />}
+          
           {error && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
@@ -165,43 +228,65 @@ export default function App() {
                 
                 <div className="relative z-10">
                   <div className="flex flex-wrap items-end justify-between gap-6 mb-12">
-                    <div>
-                      <div className="text-sm font-medium text-emerald-600 uppercase tracking-widest mb-1">
-                        {flightData.airline.name}
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center border border-black/5 text-2xl font-black text-gray-300">
+                        {flightData.airline.name.charAt(0)}
                       </div>
-                      <div className="text-5xl font-bold tracking-tighter">
-                        {flightData.flight.iata || flightData.flight.icao}
+                      <div>
+                        <div className="text-sm font-medium text-emerald-600 uppercase tracking-widest mb-1">
+                          {flightData.airline.name}
+                        </div>
+                        <div className="text-5xl font-bold tracking-tighter">
+                          {flightData.flight.iata || flightData.flight.icao}
+                        </div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-medium text-gray-400 uppercase tracking-widest mb-1">Status</div>
-                      <div className={`text-lg font-semibold capitalize ${
-                        flightData.flight_status === 'active' ? 'text-emerald-600' : 
-                        flightData.flight_status === 'scheduled' ? 'text-blue-600' : 'text-gray-600'
+                      <div className="text-sm font-medium text-gray-400 uppercase tracking-widest mb-1">Live Status</div>
+                      <div className={`px-4 py-1 rounded-full text-sm font-bold uppercase tracking-tight ${
+                        flightData.flight_status === 'active' ? 'bg-emerald-100 text-emerald-600' : 
+                        flightData.flight_status === 'scheduled' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
                       }`}>
                         {flightData.flight_status}
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-8 relative pb-4">
                     <div className="text-center md:text-left">
-                      <div className="text-4xl font-bold mb-1">{flightData.departure.iata}</div>
-                      <div className="text-sm text-gray-500 font-medium">{flightData.departure.airport}</div>
+                      <div className="text-4xl font-bold mb-1 tracking-tighter">{flightData.departure.iata}</div>
+                      <div className="text-sm text-gray-500 font-medium line-clamp-1">{flightData.departure.airport}</div>
                     </div>
                     
                     <div className="flex flex-col items-center">
-                      <div className="w-full flex items-center gap-4 mb-2">
-                        <div className="h-px bg-gray-200 flex-1"></div>
-                        <Plane className="w-6 h-6 text-gray-300 rotate-90" />
-                        <div className="h-px bg-gray-200 flex-1"></div>
+                      <div className="w-full relative h-6 mb-4 flex items-center">
+                        <div className="absolute inset-0 bg-gray-100 rounded-full h-1.5 self-center"></div>
+                        {flightData.flight_status === 'active' && (
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${calculateProgress(flightData.departure.scheduled, flightData.arrival.scheduled)}%` }}
+                            className="absolute inset-0 bg-emerald-500 rounded-full h-1.5 self-center"
+                          />
+                        )}
+                        <motion.div 
+                          animate={{ 
+                            left: flightData.flight_status === 'active' 
+                              ? `${calculateProgress(flightData.departure.scheduled, flightData.arrival.scheduled)}%` 
+                              : '50%' 
+                          }}
+                          className="absolute z-10 -translate-x-1/2 p-2 bg-white rounded-full shadow-lg border border-black/5"
+                        >
+                          <Plane className={`w-4 h-4 text-emerald-600 ${flightData.flight_status === 'active' ? 'rotate-90' : 'rotate-45'}`} />
+                        </motion.div>
                       </div>
-                      <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Non-stop</div>
+                      <div className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">
+                        {flightData.flight_status === 'active' ? 'In Flight' : 'Non-Stop'}
+                      </div>
                     </div>
 
                     <div className="text-center md:text-right">
-                      <div className="text-4xl font-bold mb-1">{flightData.arrival.iata}</div>
-                      <div className="text-sm text-gray-500 font-medium">{flightData.arrival.airport}</div>
+                      <div className="text-4xl font-bold mb-1 tracking-tighter">{flightData.arrival.iata}</div>
+                      <div className="text-sm text-gray-500 font-medium line-clamp-1">{flightData.arrival.airport}</div>
                     </div>
                   </div>
                 </div>
